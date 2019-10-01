@@ -17,7 +17,7 @@ basic_shop.data = {}; -- {"item name", quantity, price, time_left, seller, minim
 basic_shop.guidata = {}; -- [name] = {idx = idx, filter = filter, sort = sort } (start index on cur. page, filter item name, sort_coloumn)
 basic_shop.bank = {}; -- bank for offline players, [name] = {balance, deposit_time}, 
 
-basic_shop.version = "20190929a"
+basic_shop.version = "20191001a"
 
 
 basic_shop.items_on_page = 8
@@ -441,7 +441,7 @@ minetest.register_chatcommand("sell", {
 			return
 		end
 		
-		price = tonumber(words[1]) or 0
+		price = tonumber(words[1]) or 0; price = math.floor(price+0.5)
 		if price<0 or price>basic_shop.maxprice then
 			minetest.chat_send_player(name,"#basic_shop: /sell price, where price must be between 0 and " .. basic_shop.maxprice .."\nadvanced: /sell price count total_sell_count")
 			return
@@ -531,7 +531,7 @@ minetest.register_chatcommand("shop_set_money", {
 	},
 	func = function(name, param)
 		local pname, amount
-		pname,amount = string.match(param,"(%a+) (%d+)");
+		pname,amount = string.match(param,"^([%w_]+)%s+(.+)");
 		if not pname or not amount then minetest.chat_send_player(name,"usage: shop_set_money NAME AMOUNT") return end
 		amount = tonumber(amount) or 0;
 		local player = minetest.get_player_by_name(pname); if not player then return end
