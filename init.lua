@@ -96,7 +96,7 @@ local check_toplist = function(name,balance) -- too small to be on toplist -- at
 	toplist["_min"] = mink
 end
 
-local display_toplist = function()
+local display_toplist = function(name)
 	local out = {};
 	for k,v in pairs(toplist) do
 		if k ~= "_min" then
@@ -104,11 +104,14 @@ local display_toplist = function()
 		end
 	end
 	table.sort(out, function(a,b) return a[2]>b[2] end)
-	local ret = {"TOP RICHEST"};
+	local ret = {};
 	for i = 1,#out do
 		ret[#ret+1] = i .. ". " .. out[i][1] .. " " .. out[i][2]
 	end
-	minetest.chat_send_all(table.concat(ret,"\n"))
+	local form = "size [6,7] textarea[0,0;6.6,8.5;TOP SHOPS;TOP RICHEST;".. table.concat(ret,"\n").."]"
+	minetest.show_formspec(name, "basic_shop:toplist", form)
+	
+	--minetest.chat_send_all(table.concat(ret,"\n"))
 end
 
 
@@ -157,18 +160,21 @@ basic_shop.show_shop_gui = function(name)
 	local idx = guidata.idx;
 	local sort = guidata.sort;
 	local filter = guidata.filter;
+	if string.find(filter,"%%") then filter = "" end
 	
 	local data = basic_shop.data; -- whole list of items for sale
 	local idxdata = {}; -- list of idx of items for sale
 	
 	if filter == "" then
 		for i = 1,#data do idxdata[i] = i end
+		guidata.count = #data
 	else
 		for i = 1,#data do
 			if string.find(data[i][1],filter) then
 				idxdata[#idxdata+1] = i
 			end
 		end
+		guidata.count = #idxdata
 	end
 		
 	if guidata.sort>0 then
@@ -202,7 +208,7 @@ basic_shop.show_shop_gui = function(name)
 	"field[0.65,7.9;2,0.5;search;;".. guidata.filter .."] button[2.5,7.6;1.5,0.5;filter;refresh]"..
 	"button[4,7.6;1,0.5;help;help]"..
 	"button[6.6,7.6;1,0.5;left;<] button[8.6,7.6;1,0.5;right;>]" ..
-	"label[7.6,7.6; " .. math.floor(idx/m)+1 .." / " .. math.floor(n/m)+1 .."]";
+	"label[7.6,7.6; " .. math.floor(idx/(m+1))+1 .." / " .. math.floor(n/(m+1))+1 .."]";
 	
 	
 	local tabdata = {};
@@ -211,7 +217,7 @@ basic_shop.show_shop_gui = function(name)
 	local t = basic_shop.time_left-minetest.get_gametime();
 	
 	for i = idx, idxhigh do
-		local id = idxdata[i];
+		local id = idxdata[i] or 1;
 		local y = 1.3+(i-idx)*0.65
 		local ti = tonumber(data[id][4]) or 0; 
 		local time_left = ""
@@ -421,7 +427,7 @@ minetest.register_chatcommand("shop_top", {
 		privs = interact
 	},
 	func = function(name, param)
-		display_toplist()
+		display_toplist(name)
 	end
 });
 
