@@ -189,6 +189,8 @@ basic_shop.show_shop_gui = function(name)
 	
 	local m = basic_shop.items_on_page; -- default 8 items per page
 	local n = #idxdata; -- how many items in current selection
+	local pricesort = "";
+	if guidata.sort == 1 then pricesort = "+" elseif guidata.sort == 2 then pricesort  = "-" end
 	
 	local form = "size[10,8]"..	-- width, height
 	"bgcolor[#222222cc; true]" ..
@@ -199,7 +201,7 @@ basic_shop.show_shop_gui = function(name)
 
 	"label[0.4,0.7;" .. minetest.colorize("#aaa", "item") .. "]" ..
 	--"label[3,0.7;" .. minetest.colorize("#aaa", "price") .. "]" ..
-	"button[3,0.7;1,0.5;price;" .. minetest.colorize("#aaa", "price") .. "]" ..
+	"button[3,0.7;1,0.5;price;" .. minetest.colorize("#aaa", "price"..pricesort) .. "]" ..
 	"label[5,0.7;" .. minetest.colorize("#aaa", "time left") .. "]" ..
 	"label[6.5,0.7;" .. minetest.colorize("#aaa", "seller") .. "]" ..
 	
@@ -208,7 +210,7 @@ basic_shop.show_shop_gui = function(name)
 	"field[0.65,7.9;2,0.5;search;;".. guidata.filter .."] button[2.5,7.6;1.5,0.5;filter;refresh]"..
 	"button[4,7.6;1,0.5;help;help]"..
 	"button[6.6,7.6;1,0.5;left;<] button[8.6,7.6;1,0.5;right;>]" ..
-	"label[7.6,7.6; " .. math.floor(idx/(m+1))+1 .." / " .. math.floor(n/(m+1))+1 .."]";
+	"label[7.6,7.6; " .. math.ceil(idx/(m+1)) .." / " .. math.ceil(n/(m+1)) .."]";
 	
 	
 	local tabdata = {};
@@ -289,8 +291,8 @@ minetest.register_on_player_receive_fields(
 				"more shops with variable life span:\n\n"..
 				"    balance 0-4     : new player, can't create shops yet\n"..
 				"    balance 0-99    : new trader, 1 shop\n"..
-				"    balance 100-999 : medium trader, 5 shops\n"..
-				"    balance 1000+   : pro trader,  25 shops\n\n"..
+				"    balance 100-2999: medium trader, 5 shops\n"..
+				"    balance 3000+   : pro trader,  25 shops\n\n"..
 				"All trader shop lifetime is one week ( after that shop closes down), for pro traders unlimited lifetime."				
 				local form = "size [6,7] textarea[0,0;6.5,8.5;help;SHOP HELP;".. text.."]"
 				minetest.show_formspec(name, "basic_shop:help", form)
@@ -303,7 +305,8 @@ minetest.register_on_player_receive_fields(
 			local n =  guidata.count;
 			local m = basic_shop.items_on_page;
 			idx = idx - m-1;
-			if idx<0 then idx = math.max(n - m,0)+1 end
+			if idx<0 then idx = math.max(n - n%(m+1),0)+1 end
+			if idx>n then idx = math.max(n-m,1) end
 			guidata.idx = idx;
 			basic_shop.show_shop_gui(name)
 			return			
@@ -476,13 +479,13 @@ minetest.register_chatcommand("sell", {
 			return
 		elseif balance<100 then -- noob
 			if shop_count>1 then allow = false end -- 1 shop for noob
-		elseif balance<1000 then -- medium
+		elseif balance<3000 then -- medium
 			if shop_count>5 then allow = false end -- 5 shop for medium
 		else -- pro
 			if shop_count>25 then allow = false end -- 25 shop for pro
 		end
 		if not allow then 
-			minetest.chat_send_player(name,"#basic_shop: you need more money if you want more shops (100 for 5, 1000+ for 25).")
+			minetest.chat_send_player(name,"#basic_shop: you need more money if you want more shops (100 for 5, 3000+ for 25). Currently " .. shop_count .. " shops and " .. balance .. " money.")
 			return
 		end
 		
@@ -509,7 +512,7 @@ minetest.register_chatcommand("sell", {
 		--{"item name", quantity, price, time_left, seller}
 		data[#data+1 ] = { itemname, count, price, minetest.get_gametime(), name, total_count};
 		
-		if balance>= 1000 then data[#data][4] = 10^15; end -- if player is 'pro' then remove time limit, shop will never be too old
+		if balance>= 3000 then data[#data][4] = 10^15; end -- if player is 'pro' then remove time limit, shop will never be too old
 		
 		minetest.chat_send_player(name,"#basic_shop : " .. itemname .. " x " .. count .."/"..total_count .." put on sale for the price " .. price .. ". To remove item simply go /shop and buy it (for free).")
 		
