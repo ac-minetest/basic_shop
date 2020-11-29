@@ -1,14 +1,15 @@
 --[[
 basic_shop by rnd, gui design by Jozet, 2018
 
-TODO:
-buying: /shop opens gui  OK
-	gui basics OK
-	filter OK
-	buy button action OK
-	sorting
-selling: /sell price adds items in hand to shop OK
+INSTRUCTIONS:
+	use /sell command to sell items (make shop).
+	admin can set up shops using negative price to make shop buy item from players - this way players can get money, but only up to 100.
+	
 
+TODO:
+	- ability to reverse money - item OK
+		meaning: shop owner(admin) buys item and gives money. admin shop has infinite money
+	rating of shops: more money player gives for item more his rating is worth
 --]]
 
 modname = "basic_shop";
@@ -22,7 +23,7 @@ basic_shop.version = "20191001a"
 
 basic_shop.items_on_page = 8
 basic_shop.maxprice = 1000000
-basic_shop.time_left = 60*60*24*7; -- 1 week before shop removed/bank account reset
+basic_shop.time_left = 60*60*24*7*2; -- 2 week before shop removed/bank account reset
 
 local filepath = minetest.get_worldpath()..'/' .. modname;
 minetest.mkdir(filepath) -- create if non existent
@@ -239,14 +240,26 @@ basic_shop.show_shop_gui = function(name)
 			end
 		end
 	
-		tabdata[i-idx+1] = 
-		"item_image[0.4,".. y-0.1 .. ";0.7,0.7;".. data[id][1] .. "]" .. -- image
-		"label[1.1,".. y .. ";x ".. data[id][2] .. "/" .. data[id][6] .. "]" .. -- total_quantity
-		"label[3,".. y .. ";" .. minetest.colorize("#00ff36", data[id][3].." $") .."]" .. -- price
-		"label[5,".. y ..";" .. time_left .."]" .. -- time left
-		"label[6.5," .. y .. ";" .. minetest.colorize("#EE0", data[id][5]) .."]" .. -- seller
-		"image_button[8.5," .. y .. ";1.25,0.7;wool_black.png;buy".. id ..";buy ".. id .."]"  -- buy button
-		.."tooltip[buy".. id ..";".. data[id][1] .. "]"
+		local price = data[id][3]
+		if price>=0 then -- shop buys money and sells item
+			tabdata[i-idx+1] = 
+			"item_image[0.4,".. y-0.1 .. ";0.7,0.7;".. data[id][1] .. "]" .. -- image
+			"label[1.1,".. y .. ";x ".. data[id][2] .. "/" .. data[id][6] .. "]" .. -- total_quantity
+			"label[3,".. y .. ";" .. minetest.colorize("#00ff36", data[id][3].." $") .."]" .. -- price
+			"label[5,".. y ..";" .. time_left .."]" .. -- time left
+			"label[6.5," .. y .. ";" .. minetest.colorize("#EE0", data[id][5]) .."]" .. -- seller
+			"image_button[8.5," .. y .. ";1.25,0.7;wool_black.png;buy".. id ..";buy ".. id .."]"  -- buy button
+			.."tooltip[buy".. id ..";".. data[id][1] .. "]"
+		else -- shop buys item and sells money
+			tabdata[i-idx+1] = 
+			"item_image[3.0,".. y-0.1 .. ";0.7,0.7;".. data[id][1] .. "]" .. -- image
+			"label[3.7,".. y .. ";x ".. data[id][2] .. "]" .. -- total_quantity
+			"label[0.4,".. y .. ";" .. minetest.colorize("#00ff36", -data[id][3].." $") .."]" .. -- price
+			"label[5,".. y ..";" .. time_left .."]" .. -- time left
+			"label[6.5," .. y .. ";" .. minetest.colorize("#EE0", data[id][5]) .."]" .. -- seller
+			"image_button[8.5," .. y .. ";1.25,0.7;wool_black.png;buy".. id ..";buy ".. id .."]"  -- buy button
+			.."tooltip[buy".. id ..";".. data[id][1] .. "]"
+		end
 	end
 	
 	minetest.show_formspec(name, "basic_shop", form .. table.concat(tabdata,""))	
@@ -286,14 +299,15 @@ minetest.register_on_player_receive_fields(
 		if fields.help then
 			local name = player:get_player_name();
 				local text = "Make a shop using /sell command while holding item to sell in hands. "..
-				"As your basic income you get 1 money for each 12 minutes of play, but only up to 100.\n\n"..
+				"Players get money by selling goods into admin made shops, but only up to 100$.\n\n"..
 				"Depending on how much money you have (/shop_money command) you get ability to create " ..
 				"more shops with variable life span:\n\n"..
 				"    balance 0-4     : new player, can't create shops yet\n"..
 				"    balance 0-99    : new trader, 1 shop\n"..
 				"    balance 100-2999: medium trader, 5 shops\n"..
 				"    balance 3000+   : pro trader,  25 shops\n\n"..
-				"All trader shop lifetime is one week ( after that shop closes down), for pro traders unlimited lifetime."				
+				"All trader shop lifetime is one week ( after that shop closes down), for pro traders unlimited lifetime.\n\n"..
+				"Admin can set up shop that buys items and gives money by setting negative price when using /sell."
 				local form = "size [6,7] textarea[0,0;6.5,8.5;help;SHOP HELP;".. text.."]"
 				minetest.show_formspec(name, "basic_shop:help", form)
 			return
@@ -343,38 +357,63 @@ minetest.register_on_player_receive_fields(
 				local price = shop_item[3];
 				local seller = shop_item[5]
 				
-				if seller ~= name then -- owner buys for free
-					if balance<price then
-						minetest.chat_send_player(name,"#basic_shop : you need " .. price .. " money to buy item " .. sel .. ", you only have " .. balance)
+				if price >=0 then -- normal mode, sell items, buy money
+				
+					if seller ~= name then -- owner buys for free
+						if balance<price then
+							minetest.chat_send_player(name,"#basic_shop : you need " .. price .. " money to buy item " .. sel .. ", you only have " .. balance)
+							return
+						end
+						balance = balance - price;set_money(player,balance) -- change balance for buyer
+						local splayer = minetest.get_player_by_name(seller);
+						if splayer then
+							set_money(splayer, get_money(splayer) + price)
+						else
+							-- player offline, add to bank instead
+							local bank_account = basic_shop.bank[seller] or {}; -- {deposit time, value}
+							local bank_balance = bank_account[1] or 0;
+							basic_shop.bank[seller] = {bank_balance + price, minetest.get_gametime()} -- balance, time of deposit.
+						end
+					
+					end
+					
+					local inv = player:get_inventory();
+					inv:add_item("main",shop_item[1] .. " " .. shop_item[2]);
+					-- remove item from shop
+					
+					shop_item[6] = shop_item[6] - shop_item[2];
+					shop_item[4] = minetest.get_gametime() -- time refresh
+					if shop_item[6]<=0 then --remove shop
+						player_shops[seller] = (player_shops[seller] or 1) - 1;
+						local data = {};
+						-- expensive, but ok for 'small'<1000 number of shops
+						for i = 1,sel-1 do data[i] = make_table_copy(basic_shop.data[i]) end
+						for i = sel+1,#basic_shop.data do data[i-1] = make_table_copy(basic_shop.data[i]) end
+						basic_shop.data = data;
+					end
+					minetest.chat_send_player(name,"#basic_shop : you bought " .. shop_item[1] .." x " .. shop_item[2] .. ", price " .. price .." $")
+				
+				else -- price<0 -> admin shop buys item, gives money to player
+					--TODO: buyers balance doesnt update??
+					-- if shop owner not admin only allow sell if he online so that he can receive items.
+					local balance = get_money(player);
+					if balance>=100 then
+						minetest.chat_send_player(name,"#basic_shop: you can no longer get more money by selling goods to admin shop (to prevent inflation) but you can still get money by selling to other players.")
 						return
 					end
-					balance = balance - price;set_money(player,balance) -- change balance for buyer
-					local splayer = minetest.get_player_by_name(seller);
-					if splayer then
-						set_money(splayer, get_money(splayer) + price)
-					else
-						-- player offline, add to bank instead
-						local bank_account = basic_shop.bank[seller] or {}; -- {deposit time, value}
-						local bank_balance = bank_account[1] or 0;
-						basic_shop.bank[seller] = {bank_balance + price, minetest.get_gametime()} -- balance, time of deposit.
+					
+					local inv = player:get_inventory(); -- buyer, his name = name
+					if inv:contains_item("main",ItemStack(shop_item[1] .. " " .. shop_item[2])) then
+						inv:remove_item("main",ItemStack(shop_item[1] .. " " .. shop_item[2]));
+						set_money(player,balance - price)
+						minetest.chat_send_player(name,"#basic_shop : you sold " .. shop_item[1] .." x " .. shop_item[2] .. " for price " .. -price .." $")
+						if balance-price>=100 then
+							minetest.chat_send_player(name,"#basic_shop : CONGRATULATIONS! you are no longer noob merchant. now you can make more shops - look in help in /shop screen.")
+						end
 					end
+					
 				end
 				
-				local inv = player:get_inventory();
-				inv:add_item("main",shop_item[1] .. " " .. shop_item[2]);
-				-- remove item from shop
-				
-				shop_item[6] = shop_item[6] - shop_item[2];
-				shop_item[4] = minetest.get_gametime() -- time refresh
-				if shop_item[6]<=0 then --remove shop
-					player_shops[seller] = (player_shops[seller] or 1) - 1;
-					local data = {};
-					-- expensive, but ok for 'small'<1000 number of shops
-					for i = 1,sel-1 do data[i] = make_table_copy(basic_shop.data[i]) end
-					for i = sel+1,#basic_shop.data do data[i-1] = make_table_copy(basic_shop.data[i]) end
-					basic_shop.data = data;
-				end
-				minetest.chat_send_player(name,"#basic_shop : you bought " .. shop_item[1] .." x " .. shop_item[2] .. ", price " .. price .." $")
 				
 				basic_shop.show_shop_gui(name)
 			end
@@ -396,6 +435,7 @@ minetest.register_on_joinplayer( -- if player has money from bank, give him the 
 	end
 )
 
+--[[
 local ts = 0
 minetest.register_globalstep(function(dtime) -- time based income
 	ts = ts + dtime
@@ -410,7 +450,7 @@ minetest.register_globalstep(function(dtime) -- time based income
 	end
 	
 end)
-
+--]]
 
 -- CHATCOMMANDS
 
@@ -446,13 +486,13 @@ minetest.register_chatcommand("sell", {
 		for word in param:gmatch("%S+") do words[#words+1]=word end
 		local price, count, total_count
 		if #words == 0  then
-			minetest.chat_send_player(name,"#basic_shop " .. basic_shop.version .. " : /sell price, where price must be between 0 and " .. basic_shop.maxprice .."\nadvanced: /sell price count total_sell_count")
+			minetest.chat_send_player(name,"#basic_shop " .. basic_shop.version .. " : /sell price, where price must be between 0 and " .. basic_shop.maxprice .."\nadvanced: /sell price count total_sell_count.")
 			return
 		end
 		
-		price = tonumber(words[1]) or 0; price = math.floor(price+0.5)
-		if price<0 or price>basic_shop.maxprice then
-			minetest.chat_send_player(name,"#basic_shop: /sell price, where price must be between 0 and " .. basic_shop.maxprice .."\nadvanced: /sell price count total_sell_count")
+		price = tonumber(words[1]) or 0; price = (price>=0) and math.floor(price+0.5) or -math.floor(-price+0.5);
+		if price>basic_shop.maxprice then
+			minetest.chat_send_player(name,"#basic_shop: /sell price, where price must be less than " .. basic_shop.maxprice .."\nadvanced: /sell price count total_sell_count .")
 			return
 		end
 		count = tonumber(words[2])
@@ -460,6 +500,8 @@ minetest.register_chatcommand("sell", {
 		
 		
 		local player = minetest.get_player_by_name(name); if not player then return end
+		if price<0 and not minetest.get_player_privs(name).kick then price = - price end -- non admin players can not make shops that give money for items
+		
 		local stack =  player:get_wielded_item()
 		local itemname = stack:get_name();
 		
