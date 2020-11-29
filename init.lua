@@ -7,8 +7,9 @@ INSTRUCTIONS:
 	
 
 TODO:
-	- ability to reverse money - item OK
-		meaning: shop owner(admin) buys item and gives money. admin shop has infinite money
+	- ability to reverse money - item in admin shop OK
+		meaning: shop owner(admin) buys item and gives money to players. admin shop has infinite money
+		TODO: other players can do this too. problem: need additional storage for items if player not online
 	rating of shops: more money player gives for item more his rating is worth
 --]]
 
@@ -17,17 +18,40 @@ basic_shop = {};
 basic_shop.data = {}; -- {"item name", quantity, price, time_left, seller, minimal sell quantity}
 basic_shop.guidata = {}; -- [name] = {idx = idx, filter = filter, sort = sort } (start index on cur. page, filter item name, sort_coloumn)
 basic_shop.bank = {}; -- bank for offline players, [name] = {balance, deposit_time}, 
+basic_shop.version = "20201129a"
 
-basic_shop.version = "20191001a"
 
 
-basic_shop.items_on_page = 8
-basic_shop.maxprice = 1000000
+-------------------------
+-- CONFIGURATION SETTINGS
+-------------------------
+
+basic_shop.items_on_page = 8  -- gui setting
+basic_shop.maxprice = 1000000 -- maximum price players can set for 1 item
+basic_shop.max_noob_money = 100 -- after this player no longer allowed to sell his goods to admin shop to prevent inflation
+
 basic_shop.time_left = 60*60*24*7*2; -- 2 week before shop removed/bank account reset
+
+basic_shop.allowances = { -- how much money players need to make more shops and levels
+	{5, 1}, -- noob: 5$ allows to make 1 shop
+	{100,5}, -- medium
+	{3000,25} -- pro
+}
+
+-- 2 initial admin shops to get items
+basic_shop.admin_shops = { --{"item name", quantity, price, time_left, seller, minimal sell quantity}
+	[1] = {"default:dirt",1,-1,10^15,"*server*",1}, -- for skyblock
+	[2] = {"default:tree",1,-0.1,10^15,"*server*",1},
+}
+
+---------------------
+-- END OF SETTINGS
+---------------------
+
+
 
 local filepath = minetest.get_worldpath()..'/' .. modname;
 minetest.mkdir(filepath) -- create if non existent
-
 
 save_shops = function()
 	local file,err = io.open(filepath..'/shops', 'wb'); 
@@ -37,14 +61,27 @@ end
 
 local player_shops = {}; --[name] = count
 load_shops = function()
-	local file,err = io.open(filepath..'/shops', 'rb')
-	if err then minetest.log("#basic_shop: error cant load data") return end
 	
 	local told = minetest.get_gametime()  - basic_shop.time_left; -- time of oldest shop before timeout
-	local data = minetest.deserialize(file:read("*a")) or {};file:close()
+	local data = {}
+	
+	local file,err = io.open(filepath..'/shops', 'rb')
+
+	if err then 
+		minetest.log("#basic_shop: error cant load data. creating new shops.") 
+	else
+		data = minetest.deserialize(file:read("*a")) or {};file:close()
+	end
+	
 	local out = {}	
+	if not data[1] then -- no shops yet in file
+		for i = 1,#basic_shop.admin_shops do -- add admin shops first
+			out[#out+1]= basic_shop.admin_shops[i]
+		end
+	end
+	
 	for i = 1,#data do
-		if data[i][4]>told then -- shop is recent, not too old
+		if data[i][4]>told then -- shop is recent, not too old, otherwise (skip) remove it
 			out[#out+1] = data[i]
 			player_shops[data[i][5]] = (player_shops[data[i][5]] or 0) + 1 -- how many shops player has
 		end
@@ -87,7 +124,7 @@ local check_toplist = function(name,balance) -- too small to be on toplist -- at
 	toplist[name] = balance
 	
 	if n+1>10 then toplist[mink] = nil end --remove minimal
-	--more than 10, have to throw out smallest one
+	--more than 10 entries, have to throw out smallest one
 	
 	
 	minb = 10^9; mink = "" -- find new minimal element
@@ -109,7 +146,7 @@ local display_toplist = function(name)
 	for i = 1,#out do
 		ret[#ret+1] = i .. ". " .. out[i][1] .. " " .. out[i][2]
 	end
-	local form = "size [6,7] textarea[0,0;6.6,8.5;TOP SHOPS;TOP RICHEST;".. table.concat(ret,"\n").."]"
+	local form = "size [6,7] textarea[0,0.1;6.6,8.5;TOP SHOPS;TOP RICHEST;".. table.concat(ret,"\n").."]"
 	minetest.show_formspec(name, "basic_shop:toplist", form)
 	
 	--minetest.chat_send_all(table.concat(ret,"\n"))
@@ -122,7 +159,7 @@ save_bank = function()
 	file:write(minetest.serialize(basic_shop.bank)); file:close()
 end
 
-minetest.after(0, function() -- problem: before minetest.get_gametime() is nil
+minetest.after(0, function() -- problem: before this minetest.get_gametime() is nil
 	load_shops()
 	load_bank()
 end)
@@ -202,7 +239,7 @@ basic_shop.show_shop_gui = function(name)
 
 	"label[0.4,0.7;" .. minetest.colorize("#aaa", "item") .. "]" ..
 	--"label[3,0.7;" .. minetest.colorize("#aaa", "price") .. "]" ..
-	"button[3,0.7;1,0.5;price;" .. minetest.colorize("#aaa", "price"..pricesort) .. "]" ..
+	"button[3,0.7;1.2,0.5;price;" .. minetest.colorize("#aaa", "price"..pricesort) .. "]" ..
 	"label[5,0.7;" .. minetest.colorize("#aaa", "time left") .. "]" ..
 	"label[6.5,0.7;" .. minetest.colorize("#aaa", "seller") .. "]" ..
 	
@@ -267,11 +304,20 @@ end
 
 local dout = minetest.chat_send_all;
 
+
 local make_table_copy = function(tab)
 	local out = {};
 	for i = 1,#tab do out[i] = tab[i] end
 	return out
 end
+
+local remove_shop = function(idx)
+	local data = {};
+	for i = 1,idx-1 do data[i] = make_table_copy(basic_shop.data[i]) end -- expensive, but ok for 'small'<1000 number of shops
+	for i = idx+1,#basic_shop.data do data[i-1] = make_table_copy(basic_shop.data[i]) end
+	basic_shop.data = data;
+end
+
 
 minetest.register_on_player_receive_fields(
 	function(player, formname, fields)
@@ -299,13 +345,13 @@ minetest.register_on_player_receive_fields(
 		if fields.help then
 			local name = player:get_player_name();
 				local text = "Make a shop using /sell command while holding item to sell in hands. "..
-				"Players get money by selling goods into admin made shops, but only up to 100$.\n\n"..
+				"Players get money by selling goods into admin made shops, but only up to ".. basic_shop.allowances[2][1] .. "$.\n\n"..
 				"Depending on how much money you have (/shop_money command) you get ability to create " ..
 				"more shops with variable life span:\n\n"..
-				"    balance 0-4     : new player, can't create shops yet\n"..
-				"    balance 0-99    : new trader, 1 shop\n"..
-				"    balance 100-2999: medium trader, 5 shops\n"..
-				"    balance 3000+   : pro trader,  25 shops\n\n"..
+				"    balance 0-" .. basic_shop.allowances[1][1]-1 .. "     : new player, can't create shops yet\n"..
+				"    balance ".. basic_shop.allowances[1][1] .."-".. basic_shop.allowances[2][1]-1 .. "    : new trader, " .. basic_shop.allowances[1][2] .. " shop\n"..
+				"    balance " .. basic_shop.allowances[2][1] .. "-" .. basic_shop.allowances[3][1]-1 .. ": medium trader, " .. basic_shop.allowances[2][2] .. " shops\n"..
+				"    balance " .. basic_shop.allowances[3][1] .. "+   : pro trader, " .. basic_shop.allowances[3][2] .. " shops\n\n"..
 				"All trader shop lifetime is one week ( after that shop closes down), for pro traders unlimited lifetime.\n\n"..
 				"Admin can set up shop that buys items and gives money by setting negative price when using /sell."
 				local form = "size [6,7] textarea[0,0;6.5,8.5;help;SHOP HELP;".. text.."]"
@@ -385,19 +431,15 @@ minetest.register_on_player_receive_fields(
 					shop_item[4] = minetest.get_gametime() -- time refresh
 					if shop_item[6]<=0 then --remove shop
 						player_shops[seller] = (player_shops[seller] or 1) - 1;
-						local data = {};
-						-- expensive, but ok for 'small'<1000 number of shops
-						for i = 1,sel-1 do data[i] = make_table_copy(basic_shop.data[i]) end
-						for i = sel+1,#basic_shop.data do data[i-1] = make_table_copy(basic_shop.data[i]) end
-						basic_shop.data = data;
+						remove_shop(sel)
 					end
 					minetest.chat_send_player(name,"#basic_shop : you bought " .. shop_item[1] .." x " .. shop_item[2] .. ", price " .. price .." $")
 				
 				else -- price<0 -> admin shop buys item, gives money to player
-					--TODO: buyers balance doesnt update??
-					-- if shop owner not admin only allow sell if he online so that he can receive items.
+					
+					-- TODO: if shop owner not admin only allow sell if he online so that he can receive items.
 					local balance = get_money(player);
-					if balance>=100 then
+					if balance>=basic_shop.max_noob_money then
 						minetest.chat_send_player(name,"#basic_shop: you can no longer get more money by selling goods to admin shop (to prevent inflation) but you can still get money by selling to other players.")
 						return
 					end
@@ -405,15 +447,15 @@ minetest.register_on_player_receive_fields(
 					local inv = player:get_inventory(); -- buyer, his name = name
 					if inv:contains_item("main",ItemStack(shop_item[1] .. " " .. shop_item[2])) then
 						inv:remove_item("main",ItemStack(shop_item[1] .. " " .. shop_item[2]));
-						set_money(player,balance - price)
+						balance = math.min(basic_shop.max_noob_money, balance-price)
+						set_money(player,balance)
 						minetest.chat_send_player(name,"#basic_shop : you sold " .. shop_item[1] .." x " .. shop_item[2] .. " for price " .. -price .." $")
-						if balance-price>=100 then
+						if balance>=basic_shop.max_noob_money then
 							minetest.chat_send_player(name,"#basic_shop : CONGRATULATIONS! you are no longer noob merchant. now you can make more shops - look in help in /shop screen.")
 						end
 					end
 					
 				end
-				
 				
 				basic_shop.show_shop_gui(name)
 			end
@@ -554,10 +596,9 @@ minetest.register_chatcommand("sell", {
 		--{"item name", quantity, price, time_left, seller}
 		data[#data+1 ] = { itemname, count, price, minetest.get_gametime(), name, total_count};
 		
-		if balance>= 3000 then data[#data][4] = 10^15; end -- if player is 'pro' then remove time limit, shop will never be too old
+		if balance>= basic_shop.allowances[3][1] then data[#data][4] = 10^15; end -- if player is 'pro' then remove time limit, shop will never be too old
 		
 		minetest.chat_send_player(name,"#basic_shop : " .. itemname .. " x " .. count .."/"..total_count .." put on sale for the price " .. price .. ". To remove item simply go /shop and buy it (for free).")
-		
 		
 	end
 })
