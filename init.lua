@@ -13,6 +13,9 @@ TODO:
 	rating of shops: more money player gives for item more his rating is worth
 --]]
 
+
+
+
 modname = "basic_shop";
 basic_shop = {};
 basic_shop.data = {}; -- {"item name", quantity, price, time_left, seller, minimal sell quantity}
@@ -498,9 +501,7 @@ end)
 
 minetest.register_chatcommand("shop", {  -- display shop browser
 	description = "",
-	privs = {
-		privs = interact
-	},
+privs = {interact = true},
 	func = function(name, param)
 		basic_shop.show_shop_gui(name)
 	end
@@ -508,9 +509,7 @@ minetest.register_chatcommand("shop", {  -- display shop browser
 
 minetest.register_chatcommand("shop_top", {  
 	description = "",
-	privs = {
-		privs = interact
-	},
+privs = {interact = true},
 	func = function(name, param)
 		display_toplist(name)
 	end
@@ -520,9 +519,7 @@ minetest.register_chatcommand("shop_top", {
 -- player selling his product - makes new shop
 minetest.register_chatcommand("sell", { 
 	description = "",
-	privs = {
-		privs = interact
-	},
+privs = {interact = true},
 	func = function(name, param)
 		local words = {};
 		for word in param:gmatch("%S+") do words[#words+1]=word end
@@ -605,9 +602,7 @@ minetest.register_chatcommand("sell", {
 
 minetest.register_chatcommand("shop_money", { 
 	description = "",
-	privs = {
-		privs = interact
-	},
+privs = {interact = true},
 	func = function(name, param)
 		if not param or param == "" then param = name end
 		local player = minetest.get_player_by_name(param)
@@ -618,9 +613,7 @@ minetest.register_chatcommand("shop_money", {
 
 minetest.register_chatcommand("shop_set_money", { 
 	description = "",
-	privs = {
-		privs = kick
-	},
+	privs = {kick = true},
 	func = function(name, param)
 		local pname, amount
 		pname,amount = string.match(param,"^([%w_]+)%s+(.+)");
